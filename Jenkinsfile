@@ -1,0 +1,47 @@
+pipeline {
+    agent any
+
+    environment {
+        RELEASESDK = "5.0.0.43"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build mic') {
+            steps {
+                sh '''
+                    TAG_NAME=$(git --no-pager tag --points-at HEAD --sort -v:refname 2>/dev/null || echo "$GIT_BRANCH")
+                    export VERSION=$(echo $TAG_NAME | cut -d "-" -f 2)
+                    export RELEASE=$(echo $TAG_NAME | cut -d "-" -f 3)
+                    export EXTRA_NAME=-$(echo $TAG_NAME | cut -d "-" -f 4-)
+
+                    if [[ "$VERSION" != "testing" ]]; then
+                        echo "Refusing to build non testing version on jenkins"
+                        exit 1
+                    fi
+
+                    chmod a+w $PWD
+
+                    docker run -u root --rm --privileged \
+                        --mount type=bind,src=$PWD,dst=/share \
+                        --env-file env.list \
+                        -e VERSION -e RELEASE -e EXTRA_NAME \
+                        coderus/sailfishos-platform-sdk:$RELEASESDK \
+                        /bin/bash -c "/share/scripts/create-image.sh --release $RELEASE --version $VERSION"
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            archiveArtifacts artifacts: 'build/mic/*.tar.bz2*', fingerprint: true
+        }
+    }
+}
